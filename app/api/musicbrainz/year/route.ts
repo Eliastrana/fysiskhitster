@@ -3,6 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 type CacheVal = { year: number | null; expiresAt: number };
 const cache = new Map<string, CacheVal>();
 
+let lastRequestAt = 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function rateLimit() {
+    const now = Date.now();
+    const delta = now - lastRequestAt;
+    if (delta < 1100) await sleep(1100 - delta);
+    lastRequestAt = Date.now();
+}
+
 function mbUserAgent() {
     const app = process.env.MUSICBRAINZ_APP_NAME || "spotify-printer-player";
     const ver = process.env.MUSICBRAINZ_APP_VERSION || "1.0.0";
@@ -31,11 +41,10 @@ async function safeFetchJson(url: string) {
         const res = await fetch(url, {
             headers: {
                 "User-Agent": mbUserAgent(),
-                "Accept": "application/json",
+                Accept: "application/json",
             },
         });
 
-        // MusicBrainz sometimes returns HTML on errors. Don't crash parsing.
         const text = await res.text();
         let json: any = null;
         try {
@@ -45,8 +54,8 @@ async function safeFetchJson(url: string) {
         }
 
         return { ok: res.ok, status: res.status, json };
-    } catch (e: any) {
-        return { ok: false, status: 0, json: null, error: String(e?.message ?? e) };
+    } catch {
+        return { ok: false, status: 0, json: null };
     }
 }
 
@@ -70,29 +79,28 @@ export async function GET(req: NextRequest) {
 
     let year: number | null = null;
 
-    // 1) ISRC lookup first (best when available)
+    // 1) ISRC lookup
     if (isrc) {
+        await rateLimit();
         const url = new URL(`https://musicbrainz.org/ws/2/isrc/${encodeURIComponent(isrc)}`);
         url.searchParams.set("inc", "recordings+releases");
         url.searchParams.set("fmt", "json");
 
         const r = await safeFetchJson(url.toString());
         if (r.ok && r.json) {
-            const recordings = r.json.recordings || [];
-            for (const rec of recordings) {
-                // Prefer earliest year from releases if present:
+            for (const rec of r.json.recordings || []) {
                 const ry = earliestYearFromReleases(rec.releases || []);
                 if (ry != null && (year == null || ry < year)) year = ry;
 
-                // Fallback to first-release-date if present:
                 const fry = yearFromDate(rec["first-release-date"]);
                 if (fry != null && (year == null || fry < year)) year = fry;
             }
         }
     }
 
-    // 2) Fallback: recording search by track + artist
+    // 2) Fallback: recording search (WAIT before second call)
     if (year == null) {
+        await rateLimit();
         const query = `recording:"${trackName}" AND artist:"${artistName}"`;
         const url = new URL("https://musicbrainz.org/ws/2/recording/");
         url.searchParams.set("query", query);
@@ -100,21 +108,16 @@ export async function GET(req: NextRequest) {
 
         const r = await safeFetchJson(url.toString());
         if (r.ok && r.json) {
-            const recordings = r.json.recordings || [];
-            for (const rec of recordings) {
-                const dr = rec["first-release-date"];
-                const y = yearFromDate(dr);
+            for (const rec of r.json.recordings || []) {
+                const y = yearFromDate(rec["first-release-date"]);
                 if (y != null && (year == null || y < year)) year = y;
             }
         }
     }
 
-    // Cache policy:
-    // - Successful lookups: 24h
-    // - Failures / unknown: 10 minutes (so temporary MB issues calm down)
+    // cache: 24h if found, 10 min if not
     const ttlMs = year == null ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000;
     cache.set(cacheKey, { year, expiresAt: now + ttlMs });
 
-    // IMPORTANT: Always return 200 with null if unknown.
     return NextResponse.json({ originalReleaseYear: year, cached: false });
 }
