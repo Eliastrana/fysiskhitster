@@ -1,41 +1,91 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { refreshCookieName, sealRefreshToken, stateCookieName } from "@/lib/tokenCookie";
 
-const TOKEN = "https://accounts.spotify.com/api/token";
+export const runtime = "nodejs";
 
-export async function GET(req: Request) {
+const TOKEN_URL = "https://accounts.spotify.com/api/token";
+
+function requireEnv(name: string) {
+    const v = process.env[name];
+    if (!v) throw new Error(`Missing env var: ${name}`);
+    return v;
+}
+
+export async function GET(req: NextRequest) {
     const url = new URL(req.url);
-    const code = url.searchParams.get("code");
-    if (!code) return NextResponse.json({ error: "Missing code" }, { status: 400 });
 
-    const clientId = process.env.SPOTIFY_CLIENT_ID!;
-    const clientSecret = process.env.SPOTIFY_CLIENT_SECRET!;
-    if (!clientId || !clientSecret) {
-        return NextResponse.json({ error: "Missing Spotify client id/secret" }, { status: 500 });
+    const code = url.searchParams.get("code");
+    const returnedState = url.searchParams.get("state");
+    const error = url.searchParams.get("error");
+
+    if (error) {
+        return NextResponse.redirect(new URL(`/?spotify_error=${encodeURIComponent(error)}`, url.origin));
     }
 
-    const redirectUri = process.env.SPOTIFY_SETUP_REDIRECT_URI!;
+    if (!code) {
+        return NextResponse.json({ error: "Missing code" }, { status: 400 });
+    }
 
+    // Validate state (CSRF)
+    const jar = await cookies();
+    const expectedState = jar.get(stateCookieName())?.value;
+    if (!expectedState || !returnedState || expectedState !== returnedState) {
+        return NextResponse.json({ error: "Invalid state" }, { status: 400 });
+    }
 
-    const res = await fetch(TOKEN, {
+    const clientId = requireEnv("SPOTIFY_CLIENT_ID");
+    const clientSecret = requireEnv("SPOTIFY_CLIENT_SECRET");
+    const redirectUri = requireEnv("SPOTIFY_SETUP_REDIRECT_URI");
+
+    const res = await fetch(TOKEN_URL, {
         method: "POST",
         headers: {
             "Content-Type": "application/x-www-form-urlencoded",
-            Authorization: "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64")
+            Authorization: "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64"),
         },
         body: new URLSearchParams({
             grant_type: "authorization_code",
             code,
-            redirect_uri: redirectUri
-        })
+            redirect_uri: redirectUri,
+        }),
     });
 
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) return NextResponse.json({ error: "Token exchange failed", detail: json }, { status: 400 });
+    const text = await res.text();
+    let json: any = null;
+    try {
+        json = text ? JSON.parse(text) : null;
+    } catch {
+        json = null;
+    }
 
-    // SHOW ONCE: copy refresh_token into SPOTIFY_REFRESH_TOKEN env var
-    return NextResponse.json({
-        message: "Copy refresh_token into SPOTIFY_REFRESH_TOKEN (server env). Then disable/remove these setup routes.",
-        refresh_token: json.refresh_token,
-        access_token_preview: json.access_token
+    if (!res.ok) {
+        return NextResponse.json({ error: "Token exchange failed", detail: text }, { status: 400 });
+    }
+
+    const refreshToken = json?.refresh_token as string | undefined;
+
+    // Spotify might not return refresh_token in some edge cases
+    // For first-time auth it should, but handle gracefully.
+    if (!refreshToken) {
+        return NextResponse.json(
+            { error: "No refresh_token returned. Try re-authorizing (remove access in Spotify account apps)." },
+            { status: 400 }
+        );
+    }
+
+    // Store encrypted refresh token in HttpOnly cookie
+    jar.set(refreshCookieName(), sealRefreshToken(refreshToken), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30, // 30 days (refresh tokens can last longer; you can extend)
     });
+
+    // Clear the state cookie
+    jar.set(stateCookieName(), "", { path: "/", maxAge: 0 });
+
+    // Redirect back to app
+    return NextResponse.redirect(new URL("/?spotify_authed=1", url.origin));
 }

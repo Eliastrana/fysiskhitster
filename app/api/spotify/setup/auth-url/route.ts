@@ -1,14 +1,25 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
+import { cookies } from "next/headers";
+import { stateCookieName } from "@/lib/tokenCookie";
 
-const AUTH = "https://accounts.spotify.com/authorize";
+export const runtime = "nodejs";
+
+const AUTH_URL = "https://accounts.spotify.com/authorize";
+
+function requireEnv(name: string) {
+    const v = process.env[name];
+    if (!v) throw new Error(`Missing env var: ${name}`);
+    return v;
+}
+
+function base64url(buf: Buffer) {
+    return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
 
 export async function GET() {
-    const clientId = process.env.SPOTIFY_CLIENT_ID!;
-    const redirectUri = process.env.SPOTIFY_SETUP_REDIRECT_URI!; // <-- IMPORTANT
-
-    if (!clientId) return NextResponse.json({ error: "Missing SPOTIFY_CLIENT_ID" }, { status: 500 });
-    if (!redirectUri)
-        return NextResponse.json({ error: "Missing SPOTIFY_SETUP_REDIRECT_URI" }, { status: 500 });
+    const clientId = requireEnv("SPOTIFY_CLIENT_ID");
+    const redirectUri = requireEnv("SPOTIFY_SETUP_REDIRECT_URI");
 
     const scopes = [
         "playlist-read-private",
@@ -18,11 +29,24 @@ export async function GET() {
         "user-modify-playback-state",
     ].join(" ");
 
-    const url = new URL(AUTH);
+    // CSRF protection
+    const state = base64url(crypto.randomBytes(16));
+
+    const url = new URL(AUTH_URL);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", clientId);
-    url.searchParams.set("redirect_uri", redirectUri); // <-- must match allowlist EXACTLY
+    url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("scope", scopes);
+    url.searchParams.set("state", state);
 
-    return NextResponse.json({ url: url.toString(), redirectUri });
+    const jar = await cookies();
+    jar.set(stateCookieName(), state, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 10 * 60, // 10 min
+    });
+
+    return NextResponse.json({ url: url.toString() });
 }
