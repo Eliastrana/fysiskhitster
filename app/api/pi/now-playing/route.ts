@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getSpotifyAccessToken, spotifyApiBase, spotifyYearFromReleaseDate } from "@/lib/spotifyServer";
-import { getMusicBrainzOriginalYear } from "@/lib/musicbrainz";
 
 export async function GET(req: Request) {
     const piKey = req.headers.get("x-pi-key");
@@ -11,15 +10,15 @@ export async function GET(req: Request) {
     const token = await getSpotifyAccessToken();
     const api = spotifyApiBase();
 
-    // currently playing
     const curRes = await fetch(`${api}/me/player/currently-playing`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
     });
 
-    // Spotify returns 204 when nothing is playing. :contentReference[oaicite:5]{index=5}
+    // 204 when nothing is playing
     if (curRes.status === 204) {
-        return NextResponse.json({ trackId: null, line: null });
+        return NextResponse.json({ trackId: null });
     }
+
     if (!curRes.ok) {
         const detail = await curRes.text();
         return NextResponse.json({ error: "Spotify currently-playing failed", detail }, { status: 400 });
@@ -27,18 +26,20 @@ export async function GET(req: Request) {
 
     const cur = await curRes.json();
     const item = cur?.item;
-    if (!item) return NextResponse.json({ trackId: null, line: null });
+    if (!item) return NextResponse.json({ trackId: null });
 
     const trackId = item.id as string;
     const title = item.name as string;
     const artist = item.artists?.[0]?.name ?? "Unknown";
     const isrc = item.external_ids?.isrc ?? null;
 
-    const sYear = spotifyYearFromReleaseDate(item.album?.release_date ?? null);
-    const mbYear = await getMusicBrainzOriginalYear({ trackName: title, artistName: artist, isrc });
+    const spotifyYear = spotifyYearFromReleaseDate(item.album?.release_date ?? null);
 
-    const mismatch = sYear != null && mbYear != null && sYear !== mbYear ? " (YEAR MISMATCH)" : "";
-    const line = `${title} — ${artist} (${mbYear ?? "????"})${mismatch}`;
-
-    return NextResponse.json({ trackId, line, spotifyYear: sYear, musicBrainzYear: mbYear });
+    return NextResponse.json({
+        trackId,
+        title,
+        artist,
+        isrc,
+        spotifyYear,
+    });
 }
