@@ -146,19 +146,6 @@ export default function Page() {
           </div>
         </div>
 
-        <div className="p-4 rounded border bg-zinc-50 space-y-2">
-          <div className="font-medium">One-time setup</div>
-          <p className="text-sm text-zinc-600">
-            If you don’t have <code className="px-1 bg-white rounded">SPOTIFY_REFRESH_TOKEN</code> yet:
-            click below, authorize, then copy <code className="px-1 bg-white rounded">refresh_token</code> from the callback JSON into your host env vars.
-          </p>
-          <button className="px-4 py-2 rounded border" onClick={getSetupAuthUrl}>
-            Generate Spotify auth URL
-          </button>
-          <p className="text-xs text-zinc-500">
-            After setup, delete/disable the <code>api/spotify/setup</code> routes.
-          </p>
-        </div>
       </main>
   );
 }

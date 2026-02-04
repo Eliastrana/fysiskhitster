@@ -1,9 +1,7 @@
+import { NextRequest, NextResponse } from "next/server";
+
 type CacheVal = { year: number | null; expiresAt: number };
 const cache = new Map<string, CacheVal>();
-
-let lastRequestAt = 0;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function mbUserAgent() {
     const app = process.env.MUSICBRAINZ_APP_NAME || "spotify-printer-player";
@@ -12,16 +10,9 @@ function mbUserAgent() {
     return `${app}/${ver} (${contact})`;
 }
 
-async function rateLimit() {
-    const now = Date.now();
-    const delta = now - lastRequestAt;
-    if (delta < 1100) await sleep(1100 - delta);
-    lastRequestAt = Date.now();
-}
-
 function yearFromDate(s?: string | null): number | null {
     if (!s) return null;
-    const y = Number(s.slice(0, 4));
+    const y = Number(String(s).slice(0, 4));
     return Number.isFinite(y) ? y : null;
 }
 
@@ -35,58 +26,95 @@ function earliestYearFromReleases(releases: any[]): number | null {
     return best;
 }
 
-export async function getMusicBrainzOriginalYear(opts: {
-    trackName: string;
-    artistName: string;
-    isrc?: string | null;
-}): Promise<number | null> {
-    const trackName = opts.trackName.trim();
-    const artistName = opts.artistName.trim();
-    const isrc = (opts.isrc || "").trim();
+async function safeFetchJson(url: string) {
+    try {
+        const res = await fetch(url, {
+            headers: {
+                "User-Agent": mbUserAgent(),
+                "Accept": "application/json",
+            },
+        });
 
-    const key = `${trackName.toLowerCase()}::${artistName.toLowerCase()}::${isrc.toLowerCase()}`;
+        // MusicBrainz sometimes returns HTML on errors. Don't crash parsing.
+        const text = await res.text();
+        let json: any = null;
+        try {
+            json = text ? JSON.parse(text) : null;
+        } catch {
+            json = null;
+        }
+
+        return { ok: res.ok, status: res.status, json };
+    } catch (e: any) {
+        return { ok: false, status: 0, json: null, error: String(e?.message ?? e) };
+    }
+}
+
+export async function GET(req: NextRequest) {
+    const { searchParams } = new URL(req.url);
+    const trackName = searchParams.get("trackName")?.trim();
+    const artistName = searchParams.get("artistName")?.trim();
+    const isrc = searchParams.get("isrc")?.trim() || "";
+
+    if (!trackName || !artistName) {
+        return NextResponse.json({ error: "Missing trackName or artistName" }, { status: 400 });
+    }
+
+    const cacheKey = `${trackName.toLowerCase()}::${artistName.toLowerCase()}::${isrc.toLowerCase()}`;
     const now = Date.now();
-    const cached = cache.get(key);
-    if (cached && cached.expiresAt > now) return cached.year;
+
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+        return NextResponse.json({ originalReleaseYear: cached.year, cached: true });
+    }
 
     let year: number | null = null;
 
-    // ISRC-first (more accurate)
+    // 1) ISRC lookup first (best when available)
     if (isrc) {
-        await rateLimit();
         const url = new URL(`https://musicbrainz.org/ws/2/isrc/${encodeURIComponent(isrc)}`);
         url.searchParams.set("inc", "recordings+releases");
         url.searchParams.set("fmt", "json");
 
-        const res = await fetch(url.toString(), { headers: { "User-Agent": mbUserAgent() } });
-        if (res.ok) {
-            const json = await res.json();
-            for (const r of json.recordings || []) {
-                const ry = earliestYearFromReleases(r.releases || []);
+        const r = await safeFetchJson(url.toString());
+        if (r.ok && r.json) {
+            const recordings = r.json.recordings || [];
+            for (const rec of recordings) {
+                // Prefer earliest year from releases if present:
+                const ry = earliestYearFromReleases(rec.releases || []);
                 if (ry != null && (year == null || ry < year)) year = ry;
+
+                // Fallback to first-release-date if present:
+                const fry = yearFromDate(rec["first-release-date"]);
+                if (fry != null && (year == null || fry < year)) year = fry;
             }
         }
     }
 
-    // Fallback: recording search (your old pattern)
+    // 2) Fallback: recording search by track + artist
     if (year == null) {
-        await rateLimit();
         const query = `recording:"${trackName}" AND artist:"${artistName}"`;
         const url = new URL("https://musicbrainz.org/ws/2/recording/");
         url.searchParams.set("query", query);
         url.searchParams.set("fmt", "json");
 
-        const res = await fetch(url.toString(), { headers: { "User-Agent": mbUserAgent() } });
-        if (res.ok) {
-            const data = await res.json();
-            const recordings = data.recordings || [];
+        const r = await safeFetchJson(url.toString());
+        if (r.ok && r.json) {
+            const recordings = r.json.recordings || [];
             for (const rec of recordings) {
-                const y = yearFromDate(rec["first-release-date"]);
+                const dr = rec["first-release-date"];
+                const y = yearFromDate(dr);
                 if (y != null && (year == null || y < year)) year = y;
             }
         }
     }
 
-    cache.set(key, { year, expiresAt: now + 24 * 60 * 60 * 1000 });
-    return year;
+    // Cache policy:
+    // - Successful lookups: 24h
+    // - Failures / unknown: 10 minutes (so temporary MB issues calm down)
+    const ttlMs = year == null ? 10 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    cache.set(cacheKey, { year, expiresAt: now + ttlMs });
+
+    // IMPORTANT: Always return 200 with null if unknown.
+    return NextResponse.json({ originalReleaseYear: year, cached: false });
 }
