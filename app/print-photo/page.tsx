@@ -14,6 +14,7 @@ export default function PrintPhotoPage() {
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [didSend, setDidSend] = useState(false);
+  const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
 
   useEffect(() => {
     if (!selectedFile) {
@@ -26,6 +27,21 @@ export default function PrintPhotoPage() {
 
     return () => URL.revokeObjectURL(nextPreviewUrl);
   }, [selectedFile]);
+
+  useEffect(() => {
+    if (!showSuccessOverlay) return;
+
+    const resetTimer = window.setTimeout(() => {
+      setShowSuccessOverlay(false);
+      setSelectedFile(null);
+      setDidSend(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }, 2200);
+
+    return () => clearTimeout(resetTimer);
+  }, [showSuccessOverlay]);
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const nextFile = event.target.files?.[0] ?? null;
@@ -51,6 +67,7 @@ export default function PrintPhotoPage() {
       const data = (await response.json().catch(() => ({}))) as UploadResponse;
       if (response.ok && data.ok) {
         setDidSend(true);
+        setShowSuccessOverlay(true);
       }
     } finally {
       setIsSubmitting(false);
@@ -59,6 +76,28 @@ export default function PrintPhotoPage() {
 
   return (
       <main className="min-h-screen overflow-hidden bg-[#0f1115]">
+        <AnimatePresence>
+          {showSuccessOverlay ? (
+              <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f1115]"
+              >
+                <motion.div
+                    initial={{ opacity: 0, y: 20, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -12, scale: 0.98 }}
+                    transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+                    className="px-8 text-center text-3xl font-semibold text-white sm:text-5xl"
+                >
+                  Du så veldig bra ut 🥵
+                </motion.div>
+              </motion.div>
+          ) : null}
+        </AnimatePresence>
+
         <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 py-10">
           <motion.div
               layout
