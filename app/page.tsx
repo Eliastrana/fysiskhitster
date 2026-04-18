@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import PlaylistPicker from "@/components/PlaylistPicker";
 import BouncyButton from "@/components/BouncyButton";
@@ -8,6 +9,7 @@ import SettingsPanel from "@/components/SettingsPanel";
 
 type Playlist = { id: string; name: string; uri: string };
 type PlayerPhase = "pick" | "player";
+type PlaylistResponse = { items?: Playlist[] };
 
 export default function Page() {
   const [phase, setPhase] = useState<PlayerPhase>("pick");
@@ -24,7 +26,7 @@ export default function Page() {
   const [needsLogin, setNeedsLogin] = useState<boolean>(false);
 
   // hidden info (only shown in settings panel)
-  const [status, setStatus] = useState<string>("");
+  const [status, setStatus] = useState<string>("Loading playlists…");
   const [nowPlaying, setNowPlaying] = useState<string>("(unknown)");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [hasActiveDevice, setHasActiveDevice] = useState<boolean>(true);
@@ -32,8 +34,6 @@ export default function Page() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   async function loadPlaylists() {
-    setStatus("Loading playlists…");
-
     const res = await fetch("/api/spotify/playlists");
 
     if (res.status === 401) {
@@ -44,7 +44,7 @@ export default function Page() {
       return;
     }
 
-    const data = await res.json().catch(() => ({}));
+    const data: PlaylistResponse = await res.json().catch(() => ({}));
     if (!res.ok) {
       setStatus(`Failed to load playlists (${res.status}).`);
       return;
@@ -52,7 +52,7 @@ export default function Page() {
 
     setNeedsLogin(false);
 
-    const items = (data.items ?? []).map((p: any) => ({
+    const items = (data.items ?? []).map((p) => ({
       id: p.id,
       name: p.name,
       uri: p.uri,
@@ -180,10 +180,15 @@ export default function Page() {
   }
 
   useEffect(() => {
-    loadPlaylists().catch(() => {});
-    refreshState().catch(() => {});
+    const initialLoad = window.setTimeout(() => {
+      loadPlaylists().catch(() => {});
+      refreshState().catch(() => {});
+    }, 0);
     const t = setInterval(() => refreshState().catch(() => {}), 5000);
-    return () => clearInterval(t);
+    return () => {
+      clearTimeout(initialLoad);
+      clearInterval(t);
+    };
   }, []);
 
   return (
@@ -195,31 +200,40 @@ export default function Page() {
 
         <div className="relative z-10 max-w-3xl mx-auto px-4 py-6">
           {/* top bar */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div className="text-white">
               <div className="text-lg font-extrabold tracking-tight">
                 {phase === "pick" ? "Velg en spilleliste" : "Fysisk Hitster"}
               </div>
             </div>
 
-            <button
-                aria-label="Open settings"
-                onClick={() => setSettingsOpen(true)}
-                className="group inline-flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white border border-white/25 w-11 h-11 backdrop-blur transition active:scale-95"
-            >
-              <svg
-                  className="h-5 w-5 opacity-95 group-hover:rotate-12 transition"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+            <div className="flex items-center gap-2">
+              <Link
+                  href="/print-photo"
+                  className="inline-flex items-center justify-center rounded-full bg-white/20 px-4 py-2 text-sm font-semibold text-white border border-white/25 backdrop-blur transition hover:bg-white/30 active:scale-95"
               >
-                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-                <path d="M19.4 15a7.7 7.7 0 0 0 .1-1l2-1.2-2-3.4-2.3.7a7.3 7.3 0 0 0-.8-.6l-.3-2.4H10l-.3 2.4c-.3.2-.6.4-.8.6l-2.3-.7-2 3.4 2 1.2a7.7 7.7 0 0 0 0 2l-2 1.2 2 3.4 2.3-.7c.2.2.5.4.8.6L10 22h4l.3-2.4c.3-.2.6-.4.8-.6l2.3.7 2-3.4-2-1.2Z" />
-              </svg>
-            </button>
+                Foto
+              </Link>
+
+              <button
+                  aria-label="Open settings"
+                  onClick={() => setSettingsOpen(true)}
+                  className="group inline-flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white border border-white/25 w-11 h-11 backdrop-blur transition active:scale-95"
+              >
+                <svg
+                    className="h-5 w-5 opacity-95 group-hover:rotate-12 transition"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                  <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+                  <path d="M19.4 15a7.7 7.7 0 0 0 .1-1l2-1.2-2-3.4-2.3.7a7.3 7.3 0 0 0-.8-.6l-.3-2.4H10l-.3 2.4c-.3.2-.6.4-.8.6l-2.3-.7-2 3.4 2 1.2a7.7 7.7 0 0 0 0 2l-2 1.2 2 3.4 2.3-.7c.2.2.5.4.8.6L10 22h4l.3-2.4c.3-.2.6-.4.8-.6l2.3.7 2-3.4-2-1.2Z" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* content */}

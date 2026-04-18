@@ -1,4 +1,4 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a [Next.js](https://nextjs.org) project that powers the Fysisk Hitster controller UI and a photo upload flow for a Raspberry Pi thermal printer.
 
 ## Getting Started
 
@@ -16,9 +16,30 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The main Spotify controller lives at `/`, and the photo upload screen lives at `/print-photo`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Photo Upload And Print
+
+`/print-photo` lets a user either upload an image or take a picture directly from a phone browser. The page sends the image to `POST /api/print-photo`, which creates a new print job in Vercel Blob storage.
+
+The Raspberry Pi flow should poll these endpoints:
+
+- `GET /api/print-photo/latest`: returns the latest print-job metadata
+- `GET /api/print-photo/latest/image`: streams the latest uploaded image bytes
+
+Environment variables for the upload/print flow:
+
+- `BLOB_READ_WRITE_TOKEN`: required in Vercel for persistent image storage
+- `PRINT_UPLOAD_MAX_BYTES`: max upload size in bytes, defaults to 15MB
+- `PRINT_API_KEY`: optional shared secret; when set, the Pi must send it as `x-print-key` to the `latest` endpoints
+- `PRINT_IMAGE_SCRIPT`: optional absolute path to a local Python script if the app is self-hosted and should print immediately after upload
+- `PYTHON_BIN`: Python executable to use when running `PRINT_IMAGE_SCRIPT`, defaults to `python3`
+
+## Raspberry Pi Poller
+
+A standalone Pi poller is included at `pi/print_latest_photo.py`.
+
+It polls the deployed site, downloads the newest image only once per job ID, and sends it to the thermal printer using the same ESC/POS raster flow as the original script.
 
 ## Learn More
 
