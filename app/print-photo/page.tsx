@@ -75,7 +75,7 @@ export default function PrintPhotoPage() {
   }
 
   return (
-      <main className="min-h-screen overflow-hidden bg-[#0f1115]">
+      <main className="h-[100dvh] overflow-hidden bg-[#0f1115]">
         <AnimatePresence>
           {showSuccessOverlay ? (
               <motion.div
@@ -98,11 +98,11 @@ export default function PrintPhotoPage() {
           ) : null}
         </AnimatePresence>
 
-        <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 py-10">
+        <div className="mx-auto flex h-full w-full max-w-xl flex-col items-center justify-center px-5 py-4 sm:px-6 sm:py-5">
           <motion.div
               layout
               transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              className="w-full"
+              className={`flex h-full w-full flex-col ${previewUrl ? "" : "justify-center"}`}
           >
             <AnimatePresence mode="wait">
               {previewUrl ? (
@@ -112,7 +112,7 @@ export default function PrintPhotoPage() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -12, scale: 0.98 }}
                       transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-                      className="mb-6 overflow-hidden rounded-[2rem] bg-white/6 shadow-[0_30px_80px_rgba(0,0,0,0.45)] ring-1 ring-white/10"
+                      className="mb-4 min-h-0 flex-1 overflow-hidden rounded-[2rem] bg-white/6 shadow-[0_30px_80px_rgba(0,0,0,0.45)] ring-1 ring-white/10"
                   >
                     <Image
                         src={previewUrl}
@@ -120,22 +120,13 @@ export default function PrintPhotoPage() {
                         width={1400}
                         height={1750}
                         unoptimized
-                        className="h-auto w-full object-cover"
+                        className="h-full w-full object-contain"
                     />
                   </motion.div>
-              ) : (
-                  <motion.div
-                      key="empty"
-                      initial={{ opacity: 0, scale: 0.98 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.98 }}
-                      transition={{ duration: 0.35 }}
-                      className="mb-6 aspect-[4/5] w-full rounded-[2rem] border border-dashed border-white/12 bg-white/[0.03]"
-                  />
-              )}
+              ) : null}
             </AnimatePresence>
 
-            <div className="flex w-full flex-col gap-4">
+            <div className="flex w-full shrink-0 flex-col gap-3 sm:gap-4">
               <input
                   ref={fileInputRef}
                   type="file"
