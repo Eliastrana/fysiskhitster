@@ -13,14 +13,21 @@ export type LatestPrintJob = {
   uploadedAt: string;
 };
 
+type PrintJobUpload = {
+  fileName: string;
+  contentType: string;
+  size: number;
+  body: Buffer;
+};
+
 function sanitizeBaseName(fileName: string) {
   const withoutExtension = fileName.replace(/\.[^.]+$/, "");
   const sanitized = withoutExtension.toLowerCase().replace(/[^a-z0-9-_]+/g, "-").replace(/^-+|-+$/g, "");
   return sanitized || "upload";
 }
 
-function fileExtension(file: File) {
-  const directExtension = path.extname(file.name).toLowerCase();
+function fileExtension(fileName: string, contentType: string) {
+  const directExtension = path.extname(fileName).toLowerCase();
   if (directExtension) return directExtension;
 
   const extensionMap: Record<string, string> = {
@@ -31,7 +38,7 @@ function fileExtension(file: File) {
     "image/heif": ".heif",
   };
 
-  return extensionMap[file.type] ?? ".img";
+  return extensionMap[contentType] ?? ".img";
 }
 
 export function maxUploadBytes() {
@@ -45,13 +52,13 @@ function jobIdFromDate(date: Date) {
   return `${iso}-${randomSuffix}`;
 }
 
-export async function createPrintJob(file: File) {
+export async function createPrintJob(file: PrintJobUpload) {
   const uploadedAt = new Date();
   const jobId = jobIdFromDate(uploadedAt);
-  const imagePathname = `print-photo/jobs/${jobId}-${sanitizeBaseName(file.name)}${fileExtension(file)}`;
-  const contentType = file.type || "application/octet-stream";
+  const imagePathname = `print-photo/jobs/${jobId}-${sanitizeBaseName(file.fileName)}${fileExtension(file.fileName, file.contentType)}`;
+  const contentType = file.contentType || "application/octet-stream";
 
-  await put(imagePathname, file, {
+  await put(imagePathname, file.body, {
     access: "private",
     addRandomSuffix: false,
     contentType,
@@ -60,7 +67,7 @@ export async function createPrintJob(file: File) {
   const job: LatestPrintJob = {
     jobId,
     imagePathname,
-    originalName: file.name,
+    originalName: file.fileName,
     contentType,
     size: file.size,
     uploadedAt: uploadedAt.toISOString(),

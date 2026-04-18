@@ -4,20 +4,57 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 import { createPrintJob, maxUploadBytes } from "@/lib/printPhotoStore";
 
 export const runtime = "nodejs";
 
 const execFileAsync = promisify(execFile);
+const DEFAULT_PRINT_IMAGE_WIDTH = 384;
+const DEFAULT_PRINT_IMAGE_QUALITY = 55;
 
-async function runPrintScript(file: File) {
+function printImageWidth() {
+  const rawValue = Number(process.env.PRINT_IMAGE_WIDTH ?? DEFAULT_PRINT_IMAGE_WIDTH);
+  return Number.isFinite(rawValue) && rawValue > 0 ? rawValue : DEFAULT_PRINT_IMAGE_WIDTH;
+}
+
+function printImageQuality() {
+  const rawValue = Number(process.env.PRINT_IMAGE_QUALITY ?? DEFAULT_PRINT_IMAGE_QUALITY);
+  return Number.isFinite(rawValue) && rawValue > 0 && rawValue <= 100 ? rawValue : DEFAULT_PRINT_IMAGE_QUALITY;
+}
+
+async function compressForThermalPrinter(file: File) {
+  const inputBuffer = Buffer.from(await file.arrayBuffer());
+  const { data, info } = await sharp(inputBuffer)
+      .rotate()
+      .resize({
+        width: printImageWidth(),
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .grayscale()
+      .jpeg({
+        quality: printImageQuality(),
+        mozjpeg: true,
+      })
+      .toBuffer({ resolveWithObject: true });
+
+  return {
+    fileName: `${path.parse(file.name).name || "print-photo"}.jpg`,
+    contentType: "image/jpeg",
+    size: info.size,
+    body: data,
+  };
+}
+
+async function runPrintScript(fileName: string, body: Buffer) {
   const printScript = process.env.PRINT_IMAGE_SCRIPT;
   if (!printScript) return null;
 
-  const tempFilePath = path.join(os.tmpdir(), `print-photo-${Date.now()}-${file.name || "upload.img"}`);
+  const tempFilePath = path.join(os.tmpdir(), `print-photo-${Date.now()}-${fileName || "upload.jpg"}`);
   const pythonBin = process.env.PYTHON_BIN ?? "python3";
 
-  await writeFile(tempFilePath, Buffer.from(await file.arrayBuffer()));
+  await writeFile(tempFilePath, body);
 
   try {
     const { stdout, stderr } = await execFileAsync(pythonBin, [printScript, tempFilePath], {
@@ -65,8 +102,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const job = await createPrintJob(file);
-    const printResult = await runPrintScript(file);
+    const processedImage = await compressForThermalPrinter(file);
+    const job = await createPrintJob(processedImage);
+    const printResult = await runPrintScript(processedImage.fileName, processedImage.body);
 
     return NextResponse.json({
       ok: true,

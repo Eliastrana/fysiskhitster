@@ -31,6 +31,8 @@ Environment variables for the upload/print flow:
 
 - `BLOB_READ_WRITE_TOKEN`: required in Vercel for persistent image storage
 - `PRINT_UPLOAD_MAX_BYTES`: max upload size in bytes, defaults to 15MB
+- `PRINT_IMAGE_WIDTH`: resize width before storing/printing, defaults to 384
+- `PRINT_IMAGE_QUALITY`: JPEG quality for the compressed thermal-printer image, defaults to 55
 - `PRINT_API_KEY`: optional shared secret; when set, the Pi must send it as `x-print-key` to the `latest` endpoints
 - `PRINT_IMAGE_SCRIPT`: optional absolute path to a local Python script if the app is self-hosted and should print immediately after upload
 - `PYTHON_BIN`: Python executable to use when running `PRINT_IMAGE_SCRIPT`, defaults to `python3`
