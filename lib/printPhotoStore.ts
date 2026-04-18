@@ -58,7 +58,7 @@ export async function createPrintJob(file: PrintJobUpload) {
   const imagePathname = `print-photo/jobs/${jobId}-${sanitizeBaseName(file.fileName)}${fileExtension(file.fileName, file.contentType)}`;
   const contentType = file.contentType || "application/octet-stream";
 
-  await put(imagePathname, file.body, {
+  await put(imagePathname, new Blob([new Uint8Array(file.body)], { type: contentType }), {
     access: "private",
     addRandomSuffix: false,
     contentType,

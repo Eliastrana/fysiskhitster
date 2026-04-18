@@ -47,6 +47,17 @@ async function compressForThermalPrinter(file: File) {
   };
 }
 
+async function originalUpload(file: File) {
+  const body = Buffer.from(await file.arrayBuffer());
+
+  return {
+    fileName: file.name || "print-photo",
+    contentType: file.type || "application/octet-stream",
+    size: body.byteLength,
+    body,
+  };
+}
+
 async function runPrintScript(fileName: string, body: Buffer) {
   const printScript = process.env.PRINT_IMAGE_SCRIPT;
   if (!printScript) return null;
@@ -102,7 +113,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const processedImage = await compressForThermalPrinter(file);
+    let processedImage;
+
+    try {
+      processedImage = await compressForThermalPrinter(file);
+    } catch {
+      processedImage = await originalUpload(file);
+    }
+
     const job = await createPrintJob(processedImage);
     const printResult = await runPrintScript(processedImage.fileName, processedImage.body);
 
