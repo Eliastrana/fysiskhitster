@@ -151,7 +151,7 @@ export default function PrintPhotoPage() {
                       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                       className="absolute inset-0 flex items-center justify-center"
                   >
-                    {selectedFile ? "Bytt bilde" : "Last opp bilde"}
+                    {selectedFile ? "Bytt bilde" : "Ta bilde"}
                   </motion.span>
                 </AnimatePresence>
               </motion.button>

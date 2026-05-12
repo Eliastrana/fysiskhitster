@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 
 import serial
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageOps
 
 # ----------------------------
 # Remote API config
@@ -28,7 +28,7 @@ PRINTER_BAUD = int(os.getenv("PRINTER_BAUD", "115200"))
 PRINTER_WIDTH = int(os.getenv("PRINTER_WIDTH", "384"))
 CONTRAST = float(os.getenv("IMAGE_CONTRAST", "2.2"))
 SHARPNESS = float(os.getenv("IMAGE_SHARPNESS", "1.4"))
-THRESHOLD = int(os.getenv("IMAGE_THRESHOLD", "145"))
+AUTOCONTRAST_CUTOFF = float(os.getenv("IMAGE_AUTOCONTRAST_CUTOFF", "2"))
 
 ESC = b"\x1b"
 GS = b"\x1d"
@@ -62,7 +62,7 @@ def image_to_1bit(img: Image.Image, max_width: int) -> Image.Image:
         new_h = int(h * (max_width / w))
         img = img.resize((max_width, new_h), Image.LANCZOS)
 
-    img = img.filter(ImageFilter.SHARPEN)
+    img = ImageOps.autocontrast(img, cutoff=AUTOCONTRAST_CUTOFF)
     img = ImageEnhance.Sharpness(img).enhance(SHARPNESS)
     img = ImageEnhance.Contrast(img).enhance(CONTRAST)
 
@@ -73,7 +73,7 @@ def image_to_1bit(img: Image.Image, max_width: int) -> Image.Image:
         padded.paste(img, (0, 0))
         img = padded
 
-    img = img.point(lambda p: 0 if p < THRESHOLD else 255, mode="1")
+    img = img.convert("1", dither=Image.FLOYDSTEINBERG)
     return img
 
 
